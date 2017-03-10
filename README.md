@@ -19,7 +19,7 @@ Still needs some debugging and a lot of cleanup.
       No status or indication where you are in the list.
       Chord-Organ > Arp up > Arp down > Ping pong > Ping pong 2 > random > Chord-Organ
   
-ARP MODES
+###ARP MODES
   1. Arp up  -- Reads chord list left to right.
   2. Arp down -- Reads chord list right to left.
   3. Ping pong -- Reads chord left to right then right to left.
