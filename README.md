@@ -1,12 +1,11 @@
 # Chord-Organ
 
-ARPEGGIATOR
---------------
+##ARPEGGIATOR
 Still needs some debugging and a lot of cleanup. 
 
-USE:
-  Start/Root ---- Knob and CV work as before.
-  Station/Chord - Pot selects chords as in Chord-Organ. Same list of chords.
+###USE
+Start/Root  Knob and CV work as before.
+Station/Chord - Pot selects chords as in Chord-Organ. Same list of chords.
                   CV switches to the clock input in Arp modes.
                   **WARNING** this can be weird when you drop back into the Chord-Organ
   Reset/Trig ---- Still a trigger output. Pulse is fired every time the left-most note of
@@ -17,7 +16,7 @@ USE:
       No status or indication where you are in the list.
       Chord-Organ > Arp up > Arp down > Ping pong > Ping pong 2 > random > Chord-Organ
   
-ARP MODES:
+ARP MODES
   1. Arp up  ----- Reads chord list left to right.
   2. Arp down ---- Reads chord list right to left.
   3. Ping pong --- Reads chord left to right then right to left.
