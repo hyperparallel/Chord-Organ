@@ -78,7 +78,7 @@ int notesSD[16][8] = {
 };
 
 
-Bounce resetCV = Bounce( RESET_CV, 40 ); 
+//Bounce resetCV = Bounce( RESET_CV, 40 ); 
 boolean resetButton = false;
 File root;
 File settingsFile;
@@ -94,6 +94,7 @@ float FREQ[SINECOUNT] = {
     55,110, 220, 440, 880,1760,3520,7040};
 float AMP[SINECOUNT] = { 
     0.9, 0.9, 0.9, 0.9,0.9, 0.9, 0.9, 0.9};
+float voiceCount = 0;
 //int startNote; 
 //int chordPick; 
 //float startChosen;
@@ -111,6 +112,15 @@ int rootPotOld;
 int rootQuant;
 int rootQuantOld;
 int rootMap[1024];
+int chordCvRaw;
+int chordCvRawOld;
+float arpFreq;
+int arpCounter = 0;
+int arpClock = 0;
+int arpDirection = 1;
+int arpNumModes = 5; //count from 0
+int arpMode = 0;
+elapsedMillis arpElapsed = 0;
 boolean changed = true;
 
 boolean ResetCV;
@@ -123,7 +133,7 @@ elapsedMillis lockOut = 0;
 boolean shortPress = false;
 boolean longPress = false;
 elapsedMillis pulseOut = 0;
-int flashTime = 10;
+int flashTime = 20; // was 10
 boolean flashing = false;
 
 // GUItool: begin automatically generated code
@@ -138,7 +148,7 @@ AudioSynthWaveform       waveform8;      //xy=292,394
 AudioMixer4              mixer1;         //xy=424,117
 AudioMixer4              mixer2;         //xy=424,181
 AudioMixer4              mixer3;         //xy=571,84
-AudioEffectEnvelope      envelope1;      //xy=652,281
+//AudioEffectEnvelope      envelope1;      //xy=652,281
 AudioOutputAnalog        dac1;           //xy=784,129
 AudioConnection          patchCord1(waveform1, 0, mixer1, 0);
 AudioConnection          patchCord2(waveform2, 0, mixer1, 1);
@@ -150,15 +160,16 @@ AudioConnection          patchCord5(waveform7, 0, mixer2, 2);
 AudioConnection          patchCord6(waveform8, 0, mixer2, 3);
 AudioConnection          patchCord9(mixer1, 0, mixer3, 0);
 AudioConnection          patchCord10(mixer2, 0, mixer3, 1);
-AudioConnection          patchCord11(mixer3, envelope1);
-AudioConnection          patchCord12(envelope1, dac1);
+//AudioConnection          patchCord11(mixer3, envelope1);
+//AudioConnection          patchCord12(envelope1, dac1);
+AudioConnection          patchCord12(mixer3, dac1);
 // GUItool: end automatically generated code
 
 
 void setup(){
     pinMode(BANK_BUTTON,INPUT);
     pinMode(RESET_BUTTON, INPUT);
-    pinMode(RESET_CV, INPUT); 
+    pinMode(RESET_CV, INPUT);
     pinMode(RESET_LED, OUTPUT);
     pinMode(LED0,OUTPUT);
     pinMode(LED1,OUTPUT);
@@ -214,6 +225,7 @@ void setup(){
     waveform6.pulseWidth(0.5);
     waveform7.pulseWidth(0.5);
     waveform8.pulseWidth(0.5);
+    /*
     mixer1.gain(0,0.25);
     mixer1.gain(1,0.25);
     mixer1.gain(2,0.25);
@@ -222,23 +234,49 @@ void setup(){
     mixer2.gain(1,0.25);
     mixer2.gain(2,0.25);
     mixer2.gain(3,0);
+    */
     mixer3.gain(0,0.49);
     mixer3.gain(1,0.49);
     mixer3.gain(2,0);
     mixer3.gain(3,0);
+    /*
     envelope1.attack(1);
     envelope1.decay(1);
     envelope1.sustain(1.0);
     envelope1.release(1);
     envelope1.noteOn();
-    waveform1.begin(1.0,FREQ[0],wave_type[waveform]);
+    */
+    
+    if (arpMode) {
+      mixer1.gain(0,0.75);
+      mixer1.gain(1,0);
+      mixer1.gain(2,0);
+      mixer1.gain(3,0);
+      mixer2.gain(0,0);
+      mixer2.gain(1,0);
+      mixer2.gain(2,0);
+      mixer2.gain(3,0);
+      //waveform1.begin(1.0,FREQ[0],wave_type[waveform]);      
+    }else {
+      mixer1.gain(0,0.25);
+      mixer1.gain(1,0.25);
+      mixer1.gain(2,0.25);
+      mixer1.gain(3,0.25);
+      mixer2.gain(0,0.25);
+      mixer2.gain(1,0.25);
+      mixer2.gain(2,0.25);
+      mixer2.gain(3,0);
+    }
+    
+    waveform1.begin(1.0,FREQ[0],wave_type[waveform]);      
     waveform2.begin(1.0,FREQ[1],wave_type[waveform]);
     waveform3.begin(1.0,FREQ[2],wave_type[waveform]);
     waveform4.begin(1.0,FREQ[3],wave_type[waveform]);
     waveform5.begin(1.0,FREQ[4],wave_type[waveform]);
     waveform6.begin(1.0,FREQ[5],wave_type[waveform]);
     waveform7.begin(1.0,FREQ[6],wave_type[waveform]);
-    waveform8.begin(1.0,FREQ[7],wave_type[waveform]); 
+    waveform8.begin(1.0,FREQ[7],wave_type[waveform]);
+    
 
     //make the rootMap
     for(int i=0; i<1024; i++) {
@@ -249,6 +287,9 @@ void setup(){
       }
     }
 
+    // Generate the random seed for arp
+    randomSeed(analogRead(5));
+    SPI.end();
 }
 
 
@@ -260,12 +301,13 @@ void loop(){
 
     if (changed) {
 
-        float voiceCount = 0;
+        voiceCount = 0;
         float voiceTotal = 0;
         for(int i = 0; i< SINECOUNT; i++){
             if (notesSD[chordQuant][i] != 999) {
                 result = rootQuant + notesSD[chordQuant][i];
                 FREQ[i] =  numToFreq(result);
+                if (i == arpCounter) arpFreq = FREQ[i];
                 voiceCount++;
             }
         }
@@ -296,28 +338,41 @@ void loop(){
         changed = true;
         EEPROM.write(1234, waveform);
         shortPress = false;
-        AudioNoInterrupts();  
-        waveform1.begin(1.0,FREQ[0],wave_type[waveform]);
-        waveform2.begin(1.0,FREQ[1],wave_type[waveform]);
-        waveform3.begin(1.0,FREQ[2],wave_type[waveform]);
-        waveform4.begin(1.0,FREQ[3],wave_type[waveform]);
-        waveform5.begin(1.0,FREQ[4],wave_type[waveform]);
-        waveform6.begin(1.0,FREQ[5],wave_type[waveform]);
-        waveform7.begin(1.0,FREQ[6],wave_type[waveform]);
-        waveform8.begin(1.0,FREQ[7],wave_type[waveform]); 
+        AudioNoInterrupts();
+
+	        waveform1.begin(1.0,FREQ[0],wave_type[waveform]);
+	        waveform2.begin(1.0,FREQ[1],wave_type[waveform]);
+	        waveform3.begin(1.0,FREQ[2],wave_type[waveform]);
+	        waveform4.begin(1.0,FREQ[3],wave_type[waveform]);
+	        waveform5.begin(1.0,FREQ[4],wave_type[waveform]);
+	        waveform6.begin(1.0,FREQ[5],wave_type[waveform]);
+	        waveform7.begin(1.0,FREQ[6],wave_type[waveform]);
+	        waveform8.begin(1.0,FREQ[7],wave_type[waveform]);
+	  
         AudioInterrupts();
-
-
-
     }
 
-    if (changed)  {
-        pulseOut = 0;
-        flashing = true;
-        pinMode(RESET_CV, OUTPUT);
-        digitalWrite (RESET_LED, HIGH);
-        digitalWrite (RESET_CV, HIGH);
+    
+    if (longPress) {
+      arpMode++;
+      changed = true;
+      if (arpMode > arpNumModes) arpMode = 0;
+      //if (arpMode > 2) arpMode = 0;
+      longPress = false;
+    }
 
+    
+    if (changed)  {
+
+        if (arpMode && arpCounter > 0) {
+          flashing = false;
+        }else {
+          flashing = true;
+          pulseOut = 0;        
+          pinMode(RESET_CV, OUTPUT);
+          digitalWrite (RESET_LED, HIGH);
+          digitalWrite (RESET_CV, HIGH);
+        }
         updateSines();
 
         changed = false;
@@ -346,25 +401,37 @@ void updateSines(){
 
 
 
+    if (arpMode) {
+      mixer1.gain(0,0.75);
+      mixer1.gain(1,0);
+      mixer1.gain(2,0);
+      mixer1.gain(3,0);
+      mixer2.gain(0,0);
+      mixer2.gain(1,0);
+      mixer2.gain(2,0);
+      mixer2.gain(3,0);
 
-    mixer1.gain(0,AMP[0]);
-    mixer1.gain(1,AMP[1]);
-    mixer1.gain(2,AMP[2]);
-    mixer1.gain(3,AMP[3]);
-    mixer2.gain(0,AMP[4]);
-    mixer2.gain(1,AMP[5]);
-    mixer2.gain(2,AMP[6]);
-    mixer2.gain(3,AMP[7]);
+      waveform1.frequency(arpFreq);
+      
+    }else {
+      mixer1.gain(0,AMP[0]);
+      mixer1.gain(1,AMP[1]);
+      mixer1.gain(2,AMP[2]);
+      mixer1.gain(3,AMP[3]);
+      mixer2.gain(0,AMP[4]);
+      mixer2.gain(1,AMP[5]);
+      mixer2.gain(2,AMP[6]);
+      mixer2.gain(3,AMP[7]);
 
-    waveform1.frequency(FREQ[0]);
-    waveform2.frequency(FREQ[1]);
-    waveform3.frequency(FREQ[2]);
-    waveform4.frequency(FREQ[3]);
-    waveform5.frequency(FREQ[4]);
-    waveform6.frequency(FREQ[5]);
-    waveform7.frequency(FREQ[6]);
-    waveform8.frequency(FREQ[7]);
-
+      waveform1.frequency(FREQ[0]);
+      waveform2.frequency(FREQ[1]);
+      waveform3.frequency(FREQ[2]);
+      waveform4.frequency(FREQ[3]);
+      waveform5.frequency(FREQ[4]);
+      waveform6.frequency(FREQ[5]);
+      waveform7.frequency(FREQ[6]);
+      waveform8.frequency(FREQ[7]);
+    }
 
     AudioInterrupts();
     //    envelope1.noteOn();
@@ -397,8 +464,80 @@ void checkInterface(){
     int rootPot = analogRead(ROOT_POT_PIN); 
     int rootCV = analogRead(ROOT_CV_PIN); 
 
+    if (arpMode) {
+
+      chordRaw = chordPot;
+      chordCvRaw = chordCV;
+      chordCvRaw = constrain(chordCvRaw, 0, 1023);
+
+      /*
+      if ((chordCvRaw > chordCvRawOld + 16) || (chordCvRaw < chordCvRawOld - 16)){
+        chordCvRawOld = chordCvRaw;    
+      }
+      else {
+        chordCvRawOld += (chordCvRaw - chordCvRawOld) >>5; 
+        chordCvRaw = chordCvRawOld;  
+      }
+      */
+      
+      if (chordCvRaw > 1020 && !arpClock) { // new clock pulse received
+        arpClock = 1;
+        arpElapsed = 0;
+        changed = true;
+        
+        switch (arpMode) {
+        case 1:  // Arp up
+          arpCounter++;
+          if (arpCounter == voiceCount) arpCounter = 0;          
+          break;
+          
+        case 2:  // Arp down
+          arpCounter--;
+          if (arpCounter < 0) arpCounter = voiceCount - 1;
+          break;
+
+        case 3:  // Ping pong single notes at top and bottom
+          arpCounter = arpCounter + arpDirection;
+          if (arpCounter == voiceCount) {
+            arpDirection = -1;
+            arpCounter = voiceCount - 2;
+          }else if (arpCounter < 0) {
+            arpDirection = 1;
+            arpCounter = 1;
+          }
+          break;
+
+        case 4:  // Ping pong with double trigger and double notes
+          arpCounter = arpCounter + arpDirection;
+          if (arpCounter == voiceCount) {
+            arpDirection = -1;
+            arpCounter = voiceCount - 1;
+          }else if (arpCounter < 0) {
+            arpDirection = 1;
+            arpCounter = 0;
+          }
+          break;
+          
+        case 5:  // Random values
+          arpCounter = random(voiceCount);
+          break;
+
+          // also could do 2 up 1 down
+          // 3 up 1 down, 3 down 1 up etc
+        }          
+	
+      }else if (chordCvRaw < 475 && arpClock) {  // clock pulse ended
+	      arpClock = 0;
+      }
+      
+    }else {
+
+      chordRaw = chordPot + chordCV;
+      //chordRaw = chordPot;
+      
+    }
+
     // Copy pots and CVs to new value 
-    chordRaw = chordPot + chordCV; 
     chordRaw = constrain(chordRaw, 0, 1023);
     rootRaw = rootCV;   
     rootRaw = constrain(rootRaw, 0U, 1023U); 
@@ -414,7 +553,7 @@ void checkInterface(){
         chordRaw = chordRawOld;  
     }
 
-    
+
     if ((rootPot > rootPotOld + 16) || (rootPot < rootPotOld - 16)){
         rootPotOld = rootPot;    
     }
@@ -456,16 +595,21 @@ void checkInterface(){
     if (elapsed1 > 10 && buttonState == 0 && lockOut > 999 ){
         shortPress = true;    
     }
-    elapsed1 = elapsed1 * buttonState; 
-    if (elapsed1 > 1000){
+
+    if (elapsed1 > 1000 && buttonState == 0){
         longPress = true;
-        lockOut = 0;
-        elapsed1 = 0;
+        shortPress = false;         //suppress shortPress
+        //lockOut = 0;
+        //elapsed1 = 0;
     }
+    elapsed1 = elapsed1 * buttonState; 
 
-
-
-
+    if (!flashing && RESET_LED) {
+        digitalWrite (RESET_LED, LOW);
+        digitalWrite (RESET_CV, LOW);
+        pinMode(RESET_CV, INPUT);
+    }
+    /*
     if (!flashing){
         resetCV.update();
         ResetCV = resetCV.rose();
@@ -474,7 +618,7 @@ void checkInterface(){
 
         digitalWrite(RESET_LED, (resetFlash<20));
     }
-
+    */
 }
 
 //////////////////////////////////////////////
