@@ -4,7 +4,7 @@
 Still needs some debugging and a lot of cleanup. 
 
 ###USE
-- Start/Root -- Knob and CV work as before.
+- Start/Root -- Pot and CV work as before.
 
 - Station/Chord -- Pot selects chords as in Chord-Organ. Same list of chords.
                   CV switches to the clock input in Arp modes.
