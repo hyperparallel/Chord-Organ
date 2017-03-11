@@ -117,15 +117,17 @@ int chordCvRawOld;
 float arpFreq;
 int arpCounter = 0;
 int arpClock = 0;
+int arpClockBounce = 0;
+int arpClockThresh = 10; //num ticks low to stop counting pulse in
+int arpPulseArmed = 0; //only let trigger fire once per count
 int arpDirection = 1;
 int arpNumModes = 5; //count from 0
 int arpMode = 0;
-elapsedMillis arpElapsed = 0;
 boolean changed = true;
 
 boolean ResetCV;
-elapsedMillis resetHold;
-elapsedMillis resetFlash; 
+//elapsedMillis resetHold;
+//elapsedMillis resetFlash; 
 int updateCount = 0;
 
 elapsedMillis elapsed1 = 0;
@@ -302,7 +304,7 @@ void loop(){
     if (changed) {
 
         voiceCount = 0;
-        float voiceTotal = 0;
+        //float voiceTotal = 0;
         for(int i = 0; i< SINECOUNT; i++){
             if (notesSD[chordQuant][i] != 999) {
                 result = rootQuant + notesSD[chordQuant][i];
@@ -316,7 +318,7 @@ void loop(){
         for (int i = 0; i< SINECOUNT; i++){
             if (notesSD[chordQuant][i] != 999) {
                 AMP[i] = 1.0/voiceCount;
-                voiceTotal += 1.0/voiceCount;
+                //voiceTotal += 1.0/voiceCount;
             }
             else{
                 AMP[i] = 0.0;   
@@ -328,7 +330,7 @@ void loop(){
 
     // CHECK BUTTON STATUS 
 
-    resetHold = resetHold * resetButton;
+    //resetHold = resetHold * resetButton;
 
 
     if (shortPress){
@@ -357,7 +359,6 @@ void loop(){
       arpMode++;
       changed = true;
       if (arpMode > arpNumModes) arpMode = 0;
-      //if (arpMode > 2) arpMode = 0;
       longPress = false;
     }
 
@@ -366,7 +367,8 @@ void loop(){
 
         if (arpMode && arpCounter > 0) {
           flashing = false;
-        }else {
+          arpPulseArmed = 0;
+        }else if (!arpPulseArmed || arpMode == 0) {
           flashing = true;
           pulseOut = 0;        
           pinMode(RESET_CV, OUTPUT);
@@ -379,7 +381,8 @@ void loop(){
     }
 
 
-    if (pulseOut > flashTime && flashing == true){
+    if (pulseOut > flashTime && flashing == true) {
+      arpPulseArmed = 1;
         digitalWrite (RESET_LED, LOW);
         digitalWrite (RESET_CV, LOW);
         pinMode(RESET_CV, INPUT);
@@ -470,19 +473,9 @@ void checkInterface(){
       chordCvRaw = chordCV;
       chordCvRaw = constrain(chordCvRaw, 0, 1023);
 
-      /*
-      if ((chordCvRaw > chordCvRawOld + 16) || (chordCvRaw < chordCvRawOld - 16)){
-        chordCvRawOld = chordCvRaw;    
-      }
-      else {
-        chordCvRawOld += (chordCvRaw - chordCvRawOld) >>5; 
-        chordCvRaw = chordCvRawOld;  
-      }
-      */
-      
       if (chordCvRaw > 1020 && !arpClock) { // new clock pulse received
         arpClock = 1;
-        arpElapsed = 0;
+        arpClockBounce = 0;
         changed = true;
         
         switch (arpMode) {
@@ -526,8 +519,9 @@ void checkInterface(){
           // 3 up 1 down, 3 down 1 up etc
         }          
 	
-      }else if (chordCvRaw < 475 && arpClock) {  // clock pulse ended
-	      arpClock = 0;
+      }else if (chordCvRaw < 100 && arpClock) {  // clock pulse ended 
+        if (arpClockBounce < arpClockThresh) arpClockBounce++;
+        else arpClock = 0;
       }
       
     }else {

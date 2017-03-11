@@ -24,7 +24,6 @@ Still needs some debugging and a lot of cleanup.
   2. Arp down -- Reads chord list right to left.
   3. Ping pong -- Reads chord left to right then right to left.
   4. Ping pong 2 -- Ping pong but with left-most and right-most note doubled.
-                   Trigger is played twice on left-most note.
   5. Random  -- Reads a random note in the list and plays it.
                    Trigger is fired anytime left-most note is played.
 
