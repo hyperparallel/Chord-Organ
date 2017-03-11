@@ -25,6 +25,30 @@
 #define WRITE_RESTART(val) ((*(volatile uint32_t *)RESTART_ADDR) = (val))
 #define SINECOUNT 8
 
+//Default spread patterns
+int chordSpreadList[16][8] = {
+  {0,0,0,0,0,0,0,0},
+  {0,12,0,0,0,0,0,0},
+  {0,12,0,12,0,0,0,0},
+  {0,12,12,12,0,0,0,0},
+  {0,12,0,12,12,0,0,0},
+  {0,12,12,12,12,0,0,0},
+  {12,12,0,12,0,0,0,0},
+
+  {0,7,0,0,0,0,0,0},
+  {0,7,7,0,0,0,0,0},
+  
+  {0,1,2,0,0,0,0,0},
+  {-1,1,0,0,0,0,0,0},
+  
+  {12,0,0,0,0,0,0,0},
+  {12,12,0,0,0,0,0,0},
+  {12,12,12,0,0,0,0,0},
+
+  {12,12,12,12,12,12,12,12},
+  {-12,-12,-12,-12,-12,-12,-12,-12}
+};
+
 // Initialise Array with 999s, to identify unfilled elements when reading from SD card 
 int notesSD[16][8] = {
     {        
@@ -104,16 +128,28 @@ float voiceCount = 0;
 
 int chordRaw;
 int chordRawOld;
-int chordQuant;
+//int chordQuant;
+int potA = 0;
+int potB = 0;
+int chordQuant = 0; // put in default to test spreading
 int chordQuantOld;
+int chordSpread = 0;
+int chordSpreadOld;
+int chordSpreadPot = 0;
+int chordSpreadPotOld;
+int chordCvInput = 0; //specifies what chord cv controls
 int rootRaw;
 int rootRawOld;
 int rootPotOld;
 int rootQuant;
 int rootQuantOld;
+int rootQuantStore;
 int rootMap[1024];
+int rootControlOld;
 int chordCvRaw;
 int chordCvRawOld;
+int chordRawStore;
+int chordQuantStore;
 float arpFreq;
 int arpCounter = 0;
 int arpClock = 0;
@@ -124,6 +160,16 @@ int arpDirection = 1;
 int arpNumModes = 5; //count from 0
 int arpMode = 0;
 boolean changed = true;
+
+//button
+int buttonState = 0;
+
+//menuB stuff
+boolean menuB = false;
+boolean potTurnA = false;
+boolean potTurnB = false;
+boolean potLockA = false;
+boolean potLockB = false;
 
 boolean ResetCV;
 //elapsedMillis resetHold;
@@ -308,6 +354,7 @@ void loop(){
         for(int i = 0; i< SINECOUNT; i++){
             if (notesSD[chordQuant][i] != 999) {
                 result = rootQuant + notesSD[chordQuant][i];
+                result = result + chordSpreadList[chordSpread][i];
                 FREQ[i] =  numToFreq(result);
                 if (i == arpCounter) arpFreq = FREQ[i];
                 voiceCount++;
@@ -362,13 +409,17 @@ void loop(){
       longPress = false;
     }
 
+    if (menuB) {
+
+      if(potTurnA) {}
+    }
     
     if (changed)  {
 
         if (arpMode && arpCounter > 0) {
           flashing = false;
           arpPulseArmed = 0;
-        }else if (!arpPulseArmed || arpMode == 0) {
+        }else if (!arpPulseArmed || !arpMode) {
           flashing = true;
           pulseOut = 0;        
           pinMode(RESET_CV, OUTPUT);
@@ -381,8 +432,8 @@ void loop(){
     }
 
 
-    if (pulseOut > flashTime && flashing == true) {
-      arpPulseArmed = 1;
+    if (pulseOut > flashTime && flashing) {
+        arpPulseArmed = 1;
         digitalWrite (RESET_LED, LOW);
         digitalWrite (RESET_CV, LOW);
         pinMode(RESET_CV, INPUT);
@@ -526,15 +577,18 @@ void checkInterface(){
       
     }else {
 
-      chordRaw = chordPot + chordCV;
-      //chordRaw = chordPot;
+      //chordRaw = chordPot + chordCV;
+      chordRaw = chordPot;
+      chordCvRaw = chordCV;
+
       
     }
 
     // Copy pots and CVs to new value 
     chordRaw = constrain(chordRaw, 0, 1023);
     rootRaw = rootCV;   
-    rootRaw = constrain(rootRaw, 0U, 1023U); 
+    //rootRaw = constrain(rootRaw, 0U, 1023U);
+    rootRaw = constrain(rootRaw, 0, 1023);
 
     // Apply hysteresis and filtering to prevent jittery quantization 
     // Thanks to Matthias Puech for this code 
@@ -545,6 +599,14 @@ void checkInterface(){
     else {
         chordRawOld += (chordRaw - chordRawOld) >>5; 
         chordRaw = chordRawOld;  
+    }
+
+    if ((chordCvRaw > chordCvRawOld + 16) || (chordCvRaw < chordCvRawOld - 16)){
+        chordCvRawOld = chordCvRaw;    
+    }
+    else {
+        chordCvRawOld += (chordCvRaw - chordCvRawOld) >>5; 
+        chordCvRaw = chordCvRawOld;  
     }
 
 
@@ -566,18 +628,76 @@ void checkInterface(){
     }
 
 
-
-    chordQuant = map(chordRaw, 0, 1024, 0, chordCount);
-    if (chordQuant != chordQuantOld){
-        changed = true; 
-        chordQuantOld = chordQuant;    
+    
+    //chordRawStore = chordRaw;
+    //chordQuant = map(chordRaw, 0, 1024, 0, chordCount);
+    if (chordCvInput == 0) {
+      potA = map(chordRaw + chordCvRaw, 0, 1024, 0, chordCount);
+    }else {
+      potA = map(chordRaw, 0, 1024, 0, chordCount);
     }
 
-    //rootQuant = map(rootRaw,0,1024,36,84); // Range = C-2 (36) to C+2 (84)
-    rootQuant = rootMap[rootRaw] + map(rootPot,0,1024,36,84);
-    if (rootQuant != rootQuantOld){
+    //pot Locking
+    if (potLockA && abs(chordRaw - chordQuantStore) < 16) { 
+      potLockA = false;
+      //FLASH LIGHTS
+    }
+    if (potLockB && abs(rootPot - rootQuantStore) < 16) { 
+      potLockB = false;
+      //FLASH LIGHTS
+    }
+
+    //if (chordQuant != chordQuantOld && !buttonState) {
+    if (potA != chordQuantOld && !buttonState && !potLockA) {
+        changed = true;
+        chordQuant = potA;
+        chordQuantOld = chordQuant;
+        //store the old quant values
+        chordQuantStore = chordRaw;
+    }else if (potA != chordQuantOld && buttonState) {
+        changed = true;
+        potTurnA = true;
+        potLockA = true;
+        chordSpreadPot = potA;
+        chordSpreadPotOld = chordSpreadPot;
+
+    }
+
+    // spreading chords
+    if (chordCvInput == 1) {
+      chordSpread = chordSpreadPot + map(chordCvRaw, 0, 1024, 0, chordCount);
+    }else {
+      chordSpread = chordSpreadPot;
+    }
+    //chordSpread = constrain(chordSpread, 0, 15);
+    chordSpread = chordSpread % 16; //wrap around instead of holding at last value
+    if (chordSpread != chordSpreadOld){
         changed = true; 
-        rootQuantOld = rootQuant;  
+        chordSpreadOld = chordSpread;    
+    }
+    
+    //rootQuant = map(rootRaw,0,1024,36,84); // Range = C-2 (36) to C+2 (84)
+    //rootQuant = rootMap[rootRaw] + map(rootPot,0,1024,36,84);
+    potB = rootMap[rootRaw] + map(rootPot,0,1024,36,84);
+    if (potB != rootQuantOld && !buttonState && !potLockB){
+        changed = true;
+        rootQuant = potB;
+        rootQuantOld = rootQuant;
+        rootQuantStore = rootPot;
+    
+    }else if (rootPot != rootControlOld && buttonState) {
+        potTurnB = true;
+        potLockB = true;
+        changed = true;
+
+        if (rootPot < 100 ) {
+          chordCvInput = 0; //control the chord
+        }else if (rootPot < 923 ) {
+          chordCvInput = 1; //control the spacing
+        }else {
+          chordCvInput = 2; //control both
+        }
+        rootControlOld = rootPot;
     }
 
     //    resetSwitch.update();
@@ -585,17 +705,34 @@ void checkInterface(){
 
 
 
-    int buttonState = digitalRead(RESET_BUTTON);
+    buttonState = digitalRead(RESET_BUTTON);
+
+    //debounce buttonState here
+    
     if (elapsed1 > 10 && buttonState == 0 && lockOut > 999 ){
-        shortPress = true;    
+        shortPress = true;
+        if (potTurnA || potTurnB) {
+          menuB = true;
+          shortPress = false;
+          longPress = false;
+          potTurnA = false;
+          potTurnB = false;
+        }
     }
 
-    if (elapsed1 > 1000 && buttonState == 0){
+    if (elapsed1 > 1000 && buttonState == 0 && !menuB){
         longPress = true;
         shortPress = false;         //suppress shortPress
         //lockOut = 0;
         //elapsed1 = 0;
     }
+
+    if (!buttonState) {
+      menuB = false;
+      //      potTurnA = false;
+      //      potTurnB = false;
+    }
+    
     elapsed1 = elapsed1 * buttonState; 
 
     if (!flashing && RESET_LED) {
@@ -751,61 +888,3 @@ void printPlaying(){
     Serial.println("--");
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
