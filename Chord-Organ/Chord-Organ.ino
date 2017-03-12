@@ -253,7 +253,7 @@ void setup(){
     }
     // READ SETTINGS FROM SD CARD 
     root = SD.open("/");  
-    if (SD.exists("CHORDORG.TXT")) {
+    if (SD.exists("CHORDHYP.TXT")) {
         //OVERWRITE STARTUP FILE
         //writeSDSettings();
         readSDSettings();
@@ -798,7 +798,7 @@ void readSDSettings(){
     int note = 0;
     String settingValue;
     boolean inBracket = false;
-    settingsFile = SD.open("CHORDORG.TXT");
+    settingsFile = SD.open("CHORDHYP.TXT");
     while (settingsFile.available()) {
         character = settingsFile.read();   
         if (character == '[') {
@@ -856,9 +856,9 @@ boolean toBoolean(String settingValue) {
 // Writes A Configuration file
 void writeSDSettings() {
     // Delete the old One
-    SD.remove("CHORDORG.TXT");
+    SD.remove("CHORDHYP.TXT");
     // Create new one
-    settingsFile = SD.open("CHORDORG.TXT", FILE_WRITE);
+    settingsFile = SD.open("CHORDHYP.TXT", FILE_WRITE);
     //  // writing in the file works just like regular print()/println() function
 
     settingsFile.println("o   o o   o  o-o  o-O-o   o-o   o-O-o o  o o-O-o o   o  o-o ");
