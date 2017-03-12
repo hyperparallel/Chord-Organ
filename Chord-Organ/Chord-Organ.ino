@@ -28,25 +28,21 @@
 //Default spread patterns
 int chordSpreadList[16][8] = {
   {0,0,0,0,0,0,0,0},
-  {0,12,0,0,0,0,0,0},
-  {0,12,0,12,0,0,0,0},
-  {0,12,12,12,0,0,0,0},
-  {0,12,0,12,12,0,0,0},
-  {0,12,12,12,12,0,0,0},
-  {12,12,0,12,0,0,0,0},
-
-  {0,7,0,0,0,0,0,0},
-  {0,7,7,0,0,0,0,0},
-  
-  {0,1,2,0,0,0,0,0},
-  {-1,1,0,0,0,0,0,0},
-  
-  {12,0,0,0,0,0,0,0},
-  {12,12,0,0,0,0,0,0},
-  {12,12,12,0,0,0,0,0},
-
-  {12,12,12,12,12,12,12,12},
-  {-12,-12,-12,-12,-12,-12,-12,-12}
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0},
+  {0,0,0,0,0,0,0,0}
 };
 
 // Initialise Array with 999s, to identify unfilled elements when reading from SD card 
@@ -170,6 +166,8 @@ boolean potTurnA = false;
 boolean potTurnB = false;
 boolean potLockA = false;
 boolean potLockB = false;
+int potARaw;
+int potBRaw;
 
 boolean ResetCV;
 //elapsedMillis resetHold;
@@ -225,8 +223,8 @@ void setup(){
     pinMode(LED3,OUTPUT);
     AudioMemory(50);
 
-    //    delay(2000);
-    //    Serial.begin(9600);
+    //     delay(2000);
+    //     Serial.begin(9600);
 
     Serial.println("starting");
     ledWrite(waveform);
@@ -256,6 +254,8 @@ void setup(){
     // READ SETTINGS FROM SD CARD 
     root = SD.open("/");  
     if (SD.exists("CHORDORG.TXT")) {
+        //OVERWRITE STARTUP FILE
+        //writeSDSettings();
         readSDSettings();
     }
     else { 
@@ -334,6 +334,22 @@ void setup(){
         rootMap[i] = (i / 25.95) + 1;
       }
     }
+    /*
+    for (int i=0; i < 16; i++) {
+
+        Serial.print(notesSD[i][0]);
+        Serial.print(notesSD[i][1]);
+        Serial.print(notesSD[i][2]);
+        Serial.print(notesSD[i][3]);
+        Serial.print(notesSD[i][4]);
+        Serial.print(notesSD[i][5]);
+        Serial.print(notesSD[i][6]);
+        Serial.print(notesSD[i][7]);
+        
+
+      Serial.println("");
+    }
+    */
 
     // Generate the random seed for arp
     randomSeed(analogRead(5));
@@ -354,7 +370,7 @@ void loop(){
         for(int i = 0; i< SINECOUNT; i++){
             if (notesSD[chordQuant][i] != 999) {
                 result = rootQuant + notesSD[chordQuant][i];
-                result = result + chordSpreadList[chordSpread][i];
+                result += chordSpreadList[chordSpread][i];
                 FREQ[i] =  numToFreq(result);
                 if (i == arpCounter) arpFreq = FREQ[i];
                 voiceCount++;
@@ -584,11 +600,9 @@ void checkInterface(){
       
     }
 
-    // Copy pots and CVs to new value 
-    chordRaw = constrain(chordRaw, 0, 1023);
+    //chordRaw = constrain(chordRaw, 0, 1023);
     rootRaw = rootCV;   
     //rootRaw = constrain(rootRaw, 0U, 1023U);
-    rootRaw = constrain(rootRaw, 0, 1023);
 
     // Apply hysteresis and filtering to prevent jittery quantization 
     // Thanks to Matthias Puech for this code 
@@ -631,13 +645,22 @@ void checkInterface(){
     
     //chordRawStore = chordRaw;
     //chordQuant = map(chordRaw, 0, 1024, 0, chordCount);
-    if (chordCvInput == 0) {
-      potA = map(chordRaw + chordCvRaw, 0, 1024, 0, chordCount);
+    if (chordCvInput == 0 && !arpMode) {
+      if (potLockA) {
+        potA = map(constrain(chordQuantStore + chordCvRaw,0, 1023), 0, 1024, 0, chordCount);
+      }else {
+        potA = map(constrain(chordRaw + chordCvRaw,0, 1023), 0, 1024, 0, chordCount);
+      }
     }else {
-      potA = map(chordRaw, 0, 1024, 0, chordCount);
+      if (potLockA) {
+        potA = map(chordQuantStore, 0, 1024, 0, chordCount);
+      }else {
+        potA = map(chordRaw, 0, 1024, 0, chordCount);
+      }
     }
 
-    //pot Locking
+    potARaw = map(chordRaw, 0, 1024, 0, chordCount); //need a pot value always
+
     if (potLockA && abs(chordRaw - chordQuantStore) < 16) { 
       potLockA = false;
       //FLASH LIGHTS
@@ -647,29 +670,33 @@ void checkInterface(){
       //FLASH LIGHTS
     }
 
-    //if (chordQuant != chordQuantOld && !buttonState) {
-    if (potA != chordQuantOld && !buttonState && !potLockA) {
+
+    if (potA != chordQuantOld && !buttonState) {
         changed = true;
         chordQuant = potA;
         chordQuantOld = chordQuant;
-        //store the old quant values
-        chordQuantStore = chordRaw;
-    }else if (potA != chordQuantOld && buttonState) {
+        chordSpreadPotOld = potARaw;
+
+        if (!potLockA) {  //store the old quant values
+          chordQuantStore = chordRaw;
+        }
+        
+    }else if (potARaw != chordSpreadPotOld && buttonState) {
         changed = true;
         potTurnA = true;
         potLockA = true;
-        chordSpreadPot = potA;
+        chordSpreadPot = potARaw;
         chordSpreadPotOld = chordSpreadPot;
 
     }
 
     // spreading chords
-    if (chordCvInput == 1) {
+    if (chordCvInput == 1 && !arpMode) {
       chordSpread = chordSpreadPot + map(chordCvRaw, 0, 1024, 0, chordCount);
     }else {
       chordSpread = chordSpreadPot;
     }
-    //chordSpread = constrain(chordSpread, 0, 15);
+
     chordSpread = chordSpread % 16; //wrap around instead of holding at last value
     if (chordSpread != chordSpreadOld){
         changed = true; 
@@ -678,14 +705,22 @@ void checkInterface(){
     
     //rootQuant = map(rootRaw,0,1024,36,84); // Range = C-2 (36) to C+2 (84)
     //rootQuant = rootMap[rootRaw] + map(rootPot,0,1024,36,84);
-    potB = rootMap[rootRaw] + map(rootPot,0,1024,36,84);
-    if (potB != rootQuantOld && !buttonState && !potLockB){
+    if (potLockB) {
+      potB = rootMap[rootRaw] + map(rootQuantStore,0,1024,36,84);
+    }else {
+      potB = rootMap[rootRaw] + map(rootPot,0,1024,36,84);
+    }
+
+    potBRaw = map(rootPot,0,1024,36,84);
+    
+    if (potB != rootQuantOld && !buttonState) {
         changed = true;
         rootQuant = potB;
         rootQuantOld = rootQuant;
-        rootQuantStore = rootPot;
-    
-    }else if (rootPot != rootControlOld && buttonState) {
+        rootControlOld = potBRaw;
+        if (!potLockB) rootQuantStore = rootPot;
+
+    }else if (potBRaw != rootControlOld && buttonState) {
         potTurnB = true;
         potLockB = true;
         changed = true;
@@ -697,7 +732,7 @@ void checkInterface(){
         }else {
           chordCvInput = 2; //control both
         }
-        rootControlOld = rootPot;
+        rootControlOld = potBRaw;
     }
 
     //    resetSwitch.update();
@@ -770,13 +805,21 @@ void readSDSettings(){
             inBracket = true; 
         }
         if (character == ','  && inBracket){
-            notesSD[entry][note] = settingValue.toInt();
+            if (entry < 16) {
+              notesSD[entry][note] = settingValue.toInt();
+            }else {
+              chordSpreadList[entry - 16][note] = settingValue.toInt();
+            }
             settingValue = "";   
             note++;
         }
 
         if (character == ']'  && inBracket) {
-            notesSD[entry][note] = settingValue.toInt();
+            if (entry < 16) {
+              notesSD[entry][note] = settingValue.toInt();
+            } else {
+              chordSpreadList[entry - 16][note] = settingValue.toInt();
+            }
             settingValue = "";
             entry++;
             note = 0;
@@ -854,6 +897,29 @@ void writeSDSettings() {
     settingsFile.println("15 [-12,-12,0,0,0] Sub Octave");
     settingsFile.println("16 [-12,0,0,12,24] 2 up 1 down octaves");
 
+    settingsFile.println("");
+    settingsFile.println("Edit chord voicing in the next space below.");
+    settingsFile.println("The firmware now expects 16 chord shapes above and");
+    settingsFile.println("16 chord voicings below. Chord voicings should have");
+    settingsFile.println("8 notes always. A voicing of 0 does not alter the chord.");
+    settingsFile.println("");
+
+    settingsFile.println("1  [0,0,0,0,0,0,0,0] Unaltered voice");
+    settingsFile.println("2  [0,12,0,0,0,0,0,0] 2nd note up an Octave");
+    settingsFile.println("3  [0,12,0,12,0,0,0,0] 2nd and 4th up an Octave");
+    settingsFile.println("4  [0,12,12,12,0,0,0,0] ");
+    settingsFile.println("5  [0,12,0,12,12,0,0,0] ");
+    settingsFile.println("6  [0,12,12,12,12,0,0,0] ");
+    settingsFile.println("7  [12,12,0,12,0,0,0,0] ");
+    settingsFile.println("8  [0,7,0,0,0,0,0,0] 2nd note up a 5th");
+    settingsFile.println("9  [0,7,7,0,0,0,0,0] 2nd and 3rd up a 5th");
+    settingsFile.println("10 [0,1,2,0,0,0,0,0] 2nd up 1 step, 3rd up 2 steps");
+    settingsFile.println("11 [-1,1,0,0,0,0,0,0] 1st down a step, 2nd up a step");
+    settingsFile.println("12 [-12,12,24,0,0,0,0,0] 1st down an Octave, 2nd up an Octave, 3rd up 2 Octaves");
+    settingsFile.println("13 [12,12,0,0,0,0,0,0]");
+    settingsFile.println("14 [12,12,12,0,0,0,0,0]");
+    settingsFile.println("15 [12,12,12,12,12,12,12,12] All up an Octave");
+    settingsFile.println("16 [-12,-12,-12,-12,-12,-12,-12,-12] All down an Octave");
     //
 
 
