@@ -9,23 +9,23 @@ Still needs some debugging and a lot of cleanup.
 - Let me know what else messes up. Turning it off and on again will work too.
 
 ###USE
-- Start/Root -- 1v/oct scaled note offset. 
+Start/Root -- 1v/oct scaled note offset. 
 
-- Station/Chord -- Chord Organ: Pot selects chords.
+Station/Chord 
+- Chord Organ: Pot selects chords.
                    CV jack can either control the chords played or the voicing. More below.
-
-                  Arp: Pot selects chords as in Chord-Organ. Same list of chords.
+- Arp: Pot selects chords as in Chord-Organ. Same list of chords.
                   CV switches to the clock input in Arp modes.
                   **WARNING** this can be weird when you drop back into the Chord-Organ
                   
-- Reset/Trig -- Chord Organ: Trigger pretty much when anything happens.
-
-                Arp: Still a trigger output. Pulse is fired every time the left-most note of
+Reset/Trig
+- Chord Organ: Trigger pretty much when anything happens.
+- Arp: Still a trigger output. Pulse is fired every time the left-most note of
                       chord list is played. More on this below.
                       
-- Out -- Output
+Out -- Output
   
-- Cycle through modes by long pressing the reset button. Will only change one mode at a time.
+Cycle through modes by long pressing the reset button. Will only change one mode at a time.
       No status or indication where you are in the list. (Yet)
       Chord-Organ > Arp up > Arp down > Ping pong > Ping pong 2 > random > Chord-Organ
 
