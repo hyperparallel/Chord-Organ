@@ -32,8 +32,8 @@ Cycle through modes by long pressing the reset button. Will only change one mode
 
 ###VOICING
 - Easiest to get a feel for it in the Chord Organ but works in Arp mode too. More likely to be buggy in Arp mode.
-- Change voicing by holding reset button and turning the Start/Root pot. The Start/Root pot will not alter chords again until you turn back to its original position. No indicator lights or anything yet, sorry. The voicing will always change as soon as you turn the pot.
-- Change the Station/Chord CV jack to alter the chords or the voicing by holding the reset button and turning the Station/Chord pot. Fully left is chord, Middle is voicing, far right isn't used yet. (Will alter both in the future)
+- Change voicing by holding reset button and turning the Station/Chord pot. The Station/Chord pot will not alter chords again until you turn back to its original position. No indicator lights or anything yet, sorry. The voicing will always change as soon as you turn the pot.
+- Change the Station/Chord CV jack to alter the chords or the voicing by holding the reset button and turning the Start/Root pot. Fully left is chord, Middle is voicing, far right isn't used yet. (Will alter both in the future)
 - When CV is set to voicing and the combined pot and cv value are larger than the list size, the Chord Organ will wrap and start voicings from the beginning of the list again.
 - When CV is set to chords and the combined pot and cv value are larger than the list size, the Chord Organ will stop on the top chord.
 - Don't know the prefered way to handle that.
@@ -49,7 +49,7 @@ Cycle through modes by long pressing the reset button. Will only change one mode
                    Trigger is fired anytime left-most note is played.
 
 ###CONFIGURATION FILE
-- Same as before but now there is a second list for voicings.
+- New file called CHORDHYP.TXT. There is now a second list for voicings.
 - If there is no file the Chord Organ will create it.
 - Must have 16 Chord entries before the Voicings or your voicings will be loaded as chords.
 
