@@ -126,7 +126,8 @@ int waveformPages = 1;
 
 // Custom wavetables
 int16_t const* waveTables[8] {
-    wave1,
+    // wave1,
+    wave0,
     wave7,
     wave3,
     wave4,    
@@ -196,6 +197,9 @@ AudioSynthWaveform* oscillator[8];
 
 Settings settings("CHORDORG.TXT");
 
+const int wavefoldSize = 257;
+int16_t wavefold[wavefoldSize];
+
 void setup(){
     pinMode(BANK_BUTTON,INPUT);
     pinMode(RESET_BUTTON, INPUT);
@@ -234,7 +238,9 @@ void setup(){
 
     // Read waveform settings from EEPROM 
     waveform = EEPROM.read(1234);
-
+// OVERRIDE WAVEFORM
+    waveform = 13;
+    
 #ifdef DEBUG_STARTUP
     Serial.print("Waveform from EEPROM ");
     Serial.println(waveform);
@@ -268,6 +274,10 @@ void setup(){
     oneOverGlideTime = 1.0 / (float) glideTime;
     noteRange = settings.noteRange;
     stacked = settings.stacked;
+
+    for (int i=0; i< wavefoldSize; i++) {
+      wavefold[i] = wave0[i];
+    }
 
 #ifdef DEBUG_STARTUP
     Serial.print("Waveform page ");
@@ -421,6 +431,54 @@ void loop(){
     } 
 }
 
+void wavefolder(int foldAmt) {
+  float base = 1.5;
+  //foldAmt -= 10;
+  //foldAmt += 1;
+  float newval = foldAmt*.75 + 1;
+  int invert = 1;
+  int value;
+  int count = 0;
+  int countfold = 0;
+
+  //  if (!newval) newval = 1;
+
+  Serial.println(wavefoldSize);
+  
+  
+  for (int i=0; i< wavefoldSize; i++) {
+    //newval = ((int)(base*base*i*i*foldAmt*foldAmt)%257) + i;
+    if ((newval * (i - count)) > wavefoldSize) {
+      //invert = -invert;
+      newval = newval*2;
+      //foldAmt = foldAmt^2 - foldAmt;
+      //newval *= (abs(newval) + countfold)/((newval^2) + (countfold-1)*abs(newval) + 1);
+      count = i;
+      //countfold++;
+      //Serial.print("INVERT ");
+      //Serial.println(invert);
+    }
+
+    
+    //value = ((i * newval) % halfFoldSize);
+    value = ((int)(i * newval) % wavefoldSize);
+    wavefold[i] = invert * wave0[value];
+    //Serial.println(newval);
+    Serial.print(invert);
+    Serial.print(" :: ");
+    Serial.print(value);
+    Serial.print(" :: ");
+    Serial.print(foldAmt);
+    Serial.print(" :: ");
+    Serial.print(wavefold[i]);
+    Serial.print(" ::  ");
+    Serial.println(wave0[value]);
+
+  }
+  Serial.println("----------------------------\n\r\n\r");
+  foldCustomWaveform();
+}
+
 void updateAmpAndFreq() {
     int16_t* chord = settings.notes[chordQuant];
 
@@ -543,6 +601,19 @@ void setupCustomWaveform(int waveselect) {
     setWaveformType(WAVEFORM_ARBITRARY);
 }
 
+void foldCustomWaveform() {
+  //waveselect = (waveselect - 4) % 8;
+  AudioNoInterrupts();
+    //const int16_t* wave = waveTables[waveselect];
+    for(int i=0;i<SINECOUNT;i++) {
+        oscillator[i]->arbitraryWaveform(wavefold, MAX_FREQ);
+    }
+
+    setWaveformType(WAVEFORM_ARBITRARY);
+    AudioInterrupts();
+
+}
+
 void updateWaveformLEDs() {
     // Flash waveform LEDs for custom waves
     if(waveformPage > 0) {
@@ -652,7 +723,13 @@ void checkInterface(){
     chordQuant = map(chordRaw, 0, ADC_MAX_VAL, 0, chordCount);
     if (chordQuant != chordQuantOld){
         changed = true; 
-        chordQuantOld = chordQuant;    
+        chordQuantOld = chordQuant;
+        //--------------------
+        // Wave folder hack!
+        wavefolder(chordQuant);
+        //don't update chord
+        changed = false;
+        //--------------------
     }
 
     // Map ADC reading to Note Numbers
