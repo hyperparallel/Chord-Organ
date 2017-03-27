@@ -8,6 +8,7 @@
 
 #include "Settings.h"
 #include "Waves.h"
+#include "Interface.h"
 
 // #define DEBUG_STARTUP
 // #define DEBUG_MODE
@@ -46,6 +47,19 @@
 #define LONG_PRESS_DURATION 1000
 
 #define ROOT_NOTES_NUM 48
+
+LedBar leds(LED3, LED2, LED1, LED0);
+
+InputPot chordPot(CHORD_POT_PIN);
+InputPot chordPotB(CHORD_POT_PIN);
+
+InputPot rootPot(ROOT_POT_PIN);
+InputPot rootPotB(ROOT_POT_PIN);
+
+Input chordCV(CHORD_CV_PIN);
+Input rootCV(ROOT_CV_PIN);
+
+Button resetButton(RESET_BUTTON, SHORT_PRESS_DURATION, LONG_PRESS_DURATION);
 
 int chordCount = 16;
 
@@ -131,7 +145,7 @@ boolean rootChanged = false;
 boolean rootCVChanged = false;
 
 Bounce resetCV = Bounce( RESET_CV, 40 ); 
-boolean resetButton = false;
+//boolean resetButton = false;
 boolean resetCVRose;
 
 elapsedMillis resetHold;
@@ -160,6 +174,10 @@ int waveform = 0;
 // Waveform LED
 boolean flashingWave = false;
 elapsedMillis waveformIndicatorTimer = 0;
+
+// Translate for leds
+short trans[4] = {8, 4, 2, 1};
+//bool ledOverRide = false;
 
 int waveformPage = 0;
 int waveformPages = 1;
@@ -390,23 +408,45 @@ void setup(){
     // Now map the rest of the range linearly across the input range
     //rootMapCoeff = (float)noteRange / (ADC_MAX_VAL - rootClampLow);
 
-    chordStep = indexStep (chordCount);
-    chordCoeff = (float) 1 / chordStep;
-    chordHysteresis = chordStep * .70;
+    // chordStep = indexStep (chordCount);
+    // chordCoeff = (float) 1 / chordStep;
+    // chordHysteresis = chordStep * .70;
 
-    chordCVStep = chordStep;
-    chordCVCoeff = chordCoeff;
-    chordCVHysteresis = chordCVStep * .55;
+    chordPotB.isMenuB = true;
+    rootPotB.isMenuB = true;
+    //rootCV.isHighRes = true;
+    
+    chordPot.setup(chordCount, 70, ADC_MAX_VAL);
+    chordPotB.setup(chordCount, 70, ADC_MAX_VAL);
 
-    rootStep = indexStep (ROOT_NOTES_NUM);
-    rootCoeff = (float) 1 / rootStep;
-    rootHysteresis = rootStep * .70;
+    chordCV.setup(chordCount, 55, ADC_MAX_VAL);
+    rootPot.setup(ROOT_NOTES_NUM, 70, ADC_MAX_VAL);
+    rootPotB.setup(chordCount, 70, ADC_MAX_VAL);
 
+    if (vOct) {
+      //rootCV.setVOctCal(vOctCal);
+      rootCV.setVOctCal(104);
+      rootCV.setup(V_OCT_NOTE, 55, ADC_MAX_VAL);
+    }else {
+      rootCV.setup(noteRange, 55, ADC_MAX_VAL);
+    }
+    //delay(2000);
+    //rootCV.printSetup();
+
+    
+    // chordCVStep = chordStep; 
+    // chordCVCoeff = chordCoeff; 
+    // chordCVHysteresis = chordCVStep * .55; 
+    
+    // rootStep = indexStep (ROOT_NOTES_NUM);
+    // rootCoeff = (float) 1 / rootStep;
+    // rootHysteresis = rootStep * .70;
+    
     // Improve tracking
     //  quarter the coeff per note and quadruple the step size
     //  less chance of rounding error
     //  also need to quadruple the input value, done in checkInterface()
-
+    /*
     if (vOct) {
       Serial.print("Using vOct ");
       Serial.println(vOctCal);
@@ -420,7 +460,7 @@ void setup(){
     }
 
     rootCVHysteresis = rootCVStep * .55;
-
+    */
     /*   
     delay(2000);
     int CVtest = rootCVCoeff * 1000000;
@@ -484,14 +524,19 @@ void loop(){
     }
 
     // CHECK BUTTON STATUS 
-    resetHold = resetHold * resetButton;
+    //resetHold = resetHold * resetButton;
 
-    if (shortPress){
+    if (resetButton.shortPress){
+        Serial.println("ShortPress");
         waveform++;
         waveform = waveform % (4 * waveformPages);
         selectWaveform(waveform);
         changed = true;
-        shortPress = false;
+        //shortPress = false;
+    }
+
+    if (resetButton.longPress) {
+        Serial.println("longPress");
     }
 
     if (changed)  {
@@ -712,12 +757,30 @@ void updateAmps(){
     mixer2.gain(3,AMP[7] * waveAmp);
 }
 
+/*
+void ledWriteBit(int n, bool overRide = false) {
+    //digitalWrite(LED3, HIGH && (n==0));
+    //digitalWrite(LED2, HIGH && (n==1));
+    //digitalWrite(LED1, HIGH && (n==2));
+    //digitalWrite(LED0, HIGH && (n==3));
+
+    if (ledOverRide && !overRide) {
+        // do not update
+    }else {
+        digitalWrite(LED3, n & 0b1000);
+        digitalWrite(LED2, n & 0b0100);
+        digitalWrite(LED1, n & 0b0010);
+        digitalWrite(LED0, n & 0b0001);
+    }
+}
+*/
 // WRITE A 4 DIGIT BINARY NUMBER TO LED0-LED3 
 void ledWrite(int n){
-    digitalWrite(LED3, HIGH && (n==0));
-    digitalWrite(LED2, HIGH && (n==1));
-    digitalWrite(LED1, HIGH && (n==2));
-    digitalWrite(LED0, HIGH && (n==3)); 
+    if (n > 3) {
+        leds.ledWriteBit(0);
+    } else {
+        leds.ledWriteBit(trans[n]);
+    }
 }
 
 int rollingAvg(int val, int i) {
@@ -775,10 +838,10 @@ int indexInputs(int* rawValue, int avgNum, int stepSize, int hysteresis, int* bo
 void checkInterface(){
 
     // Read pots + CVs
-    int chordPot = analogRead(CHORD_POT_PIN);
-    int chordCV = analogRead(CHORD_CV_PIN);
-    int rootPot = analogRead(ROOT_POT_PIN); 
-    int rootCV = analogRead(ROOT_CV_PIN);
+    //int chordPot = analogRead(CHORD_POT_PIN);
+    //int chordCV = analogRead(CHORD_CV_PIN);
+    //int rootPot = analogRead(ROOT_POT_PIN); 
+    //int rootCV = analogRead(ROOT_CV_PIN);
     //int chordPot = 0;
     //int chordCV = analogRead(CHORD_POT_PIN);
     //int rootPot = 0;
@@ -797,18 +860,29 @@ void checkInterface(){
     rootCV = constrain(rootCV, 0, ADC_MAX_VAL - 1);
     */
     // quadruple the rootCV to match setup
-    rootCV <<= 2;
+    //rootCV <<= 2;
 
-    chordChanged = indexInputs(&chordPot, 0, chordStep, chordHysteresis, &chordBounce);
+    //chordChanged = indexInputs(&chordPot, 0, chordStep, chordHysteresis, &chordBounce);
 
-    chordCVChanged = indexInputs(&chordCV, 1, chordCVStep, chordCVHysteresis, &chordCVBounce);
+    //chordCVChanged = indexInputs(&chordCV, 1, chordCVStep, chordCVHysteresis, &chordCVBounce);
     
-    rootChanged = indexInputs(&rootPot, 2, rootStep, rootHysteresis, &rootBounce);
+    //rootChanged = indexInputs(&rootPot, 2, rootStep, rootHysteresis, &rootBounce);
 
-    rootCVChanged = indexInputs(&rootCV, 3, rootCVStep, rootCVHysteresis, &rootCVBounce);
+    //rootCVChanged = indexInputs(&rootCV, 3, rootCVStep, rootCVHysteresis, &rootCVBounce);
 
-            
-        
+    chordPot.update();
+    chordPotB.update();
+    chordCV.update();
+    rootPot.update();
+    rootPotB.update();
+    rootCV.update();
+    leds.update();
+    
+    chordChanged = chordPot.changed;
+    chordCVChanged = chordCV.changed;
+    rootChanged = rootPot.changed;
+    rootCVChanged = rootCV.changed;
+/*        
     if (chordQuant != chordQuantOld){
         changed = true; 
         chordQuantOld = chordQuant;    
@@ -818,18 +892,22 @@ void checkInterface(){
         changed = true; 
         voiceQuantOld = voiceQuant;    
     }
-
+*/
     
     // prevent a chord update if list is held at top value
-    if (chordChanged || chordCVChanged) {
-      chordQuantChk = constrain(chordPot + chordCV, 0, ADC_MAX_VAL - 1);
-    }    
+    if (chordChanged || chordPotB.changed || chordCVChanged) {
+      //chordQuantChk = constrain(chordPot + chordCV, 0, ADC_MAX_VAL - 1);
+      //      chordQuantChk = constrain(chordPot.value + chordCV.value, 0, ADC_MAX_VAL - 1);
+      //}    
 
-    if (chordQuantChk != chordQuantOld) {
-      chordQuantOld = chordQuantChk;
+      //if (chordQuantChk != chordQuantOld) {
+      //chordQuantOld = chordQuantChk;
 
-      chordRaw = chordPot * chordCoeff;
-      chordCVRaw = chordCV * chordCVCoeff;
+      //chordRaw = chordPot * chordCoeff;
+      //chordCVRaw = chordCV * chordCVCoeff;
+      chordRaw = chordPot.quantVal;
+      chordCVRaw = (chordCV.quantVal + chordPotB.quantVal) % chordCount;
+
 
 
       if(useVoicing) {
@@ -843,12 +921,13 @@ void checkInterface(){
           //Serial.println(" useVoicing and cvSelect == 1");
         }
       }else {
-        chordQuant = constrain(chordRaw + chordCVRaw, 0, chordCount - 1);
+        chordQuant = constrain(chordRaw + chordCVRaw, 0, chordCount);
         //Serial.println(" useVoicing is False ");
       }
       
       //chordQuant = chordPot * chordCoeff + chordCV * chordCVCoeff;
       //chordQuant = constrain(chordQuant, 0, chordCount - 1);
+      chordPot.printStatus();
       changed = true;
       /*
             Serial.print("chordQuant: ");
@@ -864,11 +943,16 @@ void checkInterface(){
     
     if (rootChanged || rootCVChanged ) {
 
-      rootCVQuant = (float)(rootCV - rootCVStep) * rootCVCoeff;
-      rootQuant = (float)rootPot * rootCoeff + rootCVQuant + LOW_NOTE + 1;
-      
-      rootCVQuantOld = rootCVQuant;
+      //rootCVQuant = (float)(rootCV - rootCVStep) * rootCVCoeff;
+      //rootQuant = (float)rootPot * rootCoeff + rootCVQuant + LOW_NOTE + 1;
+
+      rootQuant = rootPot.quantVal + rootCV.quantVal + LOW_NOTE;
+      Serial.println("ROOT");
+      rootPot.printStatus();      
+      //rootCVQuantOld = rootCVQuant;
       changed = true;
+      //rootCV.printStatus();
+
       /*
         Serial.print("rootCVBounce ");
         Serial.print(rootCVBounce);
@@ -968,6 +1052,17 @@ void checkInterface(){
     //    resetSwitch.update();
     //    resetButton = resetSwitch.read();
 
+   resetButton.update();
+   /*
+   if (resetButton.shortPress) {
+     // nothing to do
+     // use this test in changed();
+   }
+
+   if (resetButton.longPress) {
+
+   }
+
     int buttonState = digitalRead(RESET_BUTTON);
     if (buttonTimer > SHORT_PRESS_DURATION && buttonState == 0 && lockOut > 999 ){
         shortPress = true;    
@@ -979,11 +1074,11 @@ void checkInterface(){
         lockOut = 0;
         buttonTimer = 0;
     }
-
+   */
     if (!flashing){
-        resetCV.update();
-        resetCVRose = resetCV.rose();
-        if (resetCVRose) resetFlash = 0; 
+      resetCV.update();
+      resetCVRose = resetCV.rose();
+      if (resetCVRose) resetFlash = 0; 
 
         digitalWrite(RESET_LED, (resetFlash<20));
     }
