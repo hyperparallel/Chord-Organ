@@ -48,6 +48,11 @@
 
 #define ROOT_NOTES_NUM 48
 
+// Define modes
+#define CHORD_MODE 0
+#define ARP_MODE 1
+
+
 LedBar leds(LED3, LED2, LED1, LED0);
 
 InputPot chordPot(CHORD_POT_PIN);
@@ -169,7 +174,10 @@ short wave_type[4] = {
     WAVEFORM_PULSE,
 };
 // Current waveform index
-int waveform = 0; 
+int waveform = 0;
+
+// Made voiceCount global so the arp can use it
+int voiceCount = 0;
 
 // Waveform LED
 boolean flashingWave = false;
@@ -228,6 +236,17 @@ int cvSelect = 0;
 
 int noteRange = 38;
 int vOctCal = 48;
+
+// Arp
+int mode = 0;
+int arpCounter = 0;
+int arpClock = 0;
+int arpClockBounce = 0;
+int arpClockThresh = 10; //num ticks low to stop counting pulse in
+int arpPulseArmed = 0; //only let trigger fire once per count
+int arpDirection = 1;
+int arpNumModes = 5; //count from 0
+int arpVal = 0;
 
 // GUItool: begin automatically generated code
 
@@ -335,7 +354,7 @@ void setup(){
     noteRange = settings.noteRange;
     stacked = settings.stacked;
     useVoicing = settings.useVoicing;
-    cvSelect = settings.cvSelect;
+    //cvSelect = settings.cvSelect;
     vOct = settings.vOct;
     vOctCal = settings.vOctCal;
     
@@ -403,64 +422,25 @@ void setup(){
 
     //int voctRange = ADC_MAX_VAL/36 - voctCalibration;
     
-    // This makes the CV input range for the low note half the size of the other notes.
-    //rootClampLow = ((float)ADC_MAX_VAL / noteRange) * 0.5;
-    // Now map the rest of the range linearly across the input range
-    //rootMapCoeff = (float)noteRange / (ADC_MAX_VAL - rootClampLow);
-
-    // chordStep = indexStep (chordCount);
-    // chordCoeff = (float) 1 / chordStep;
-    // chordHysteresis = chordStep * .70;
-
     chordPotB.isMenuB = true;
     rootPotB.isMenuB = true;
-    //rootCV.isHighRes = true;
     
     chordPot.setup(chordCount, 70, ADC_MAX_VAL);
     chordPotB.setup(chordCount, 70, ADC_MAX_VAL);
 
-    chordCV.setup(chordCount, 55, ADC_MAX_VAL);
+    chordCV.setup(chordCount, 55, ADC_MAX_VAL, true);
+    //chordCV.setIsCV(true);
     rootPot.setup(ROOT_NOTES_NUM, 70, ADC_MAX_VAL);
-    rootPotB.setup(chordCount, 70, ADC_MAX_VAL);
+    rootPotB.setup(3, 70, ADC_MAX_VAL);  // chord cv changes 0=chord, 1=voicing, 2=dual
 
     if (vOct) {
-      //rootCV.setVOctCal(vOctCal);
-      rootCV.setVOctCal(104);
-      rootCV.setup(V_OCT_NOTE, 55, ADC_MAX_VAL);
+        //rootCV.setVOctCal(vOctCal);
+        rootCV.setVOctCal(104);
+        rootCV.setup(V_OCT_NOTE, 55, ADC_MAX_VAL, true);
     }else {
-      rootCV.setup(noteRange, 55, ADC_MAX_VAL);
+        rootCV.setup(noteRange, 55, ADC_MAX_VAL, true);
     }
-    //delay(2000);
-    //rootCV.printSetup();
-
-    
-    // chordCVStep = chordStep; 
-    // chordCVCoeff = chordCoeff; 
-    // chordCVHysteresis = chordCVStep * .55; 
-    
-    // rootStep = indexStep (ROOT_NOTES_NUM);
-    // rootCoeff = (float) 1 / rootStep;
-    // rootHysteresis = rootStep * .70;
-    
-    // Improve tracking
-    //  quarter the coeff per note and quadruple the step size
-    //  less chance of rounding error
-    //  also need to quadruple the input value, done in checkInterface()
-    /*
-    if (vOct) {
-      Serial.print("Using vOct ");
-      Serial.println(vOctCal);
-      rootCVStep = (((float)ADC_MAX_VAL / V_OCT_NOTE) * 4) - vOctCal;
-      rootCVCoeff = (float) 1 / (((ADC_MAX_VAL / V_OCT_NOTE) * 4) - vOctCal);
-    }else {
-      Serial.print("Using noteRange ");
-      Serial.println(noteRange);
-      rootCVStep = ((float)ADC_MAX_VAL / noteRange) * 4;
-      rootCVCoeff = (float) 1 / ((ADC_MAX_VAL / noteRange) * 4);
-    }
-
-    rootCVHysteresis = rootCVStep * .55;
-    */
+    //rootCV.setIsCV(true);
     /*   
     delay(2000);
     int CVtest = rootCVCoeff * 1000000;
@@ -474,7 +454,8 @@ void setup(){
     Serial.print("rootCVHysteresis x4 ");
     Serial.println(rootCVHysteresis);
     */
-
+    // seed randoms for arp
+    randomSeed(analogRead(5));
 
 #ifdef DEBUG_STARTUP
     Serial.print("Root Clamp Low ");
@@ -536,17 +517,49 @@ void loop(){
     }
 
     if (resetButton.longPress) {
+        mode++;
+        mode %= 2;
+        changed = true;
         Serial.println("longPress");
+
+        if (mode == ARP_MODE) {
+            stacked = false;
+            // glide could work with a few changes setting up delta freq
+            // problem is getting correct chord[i] in  updateFrequencies()
+            glide = false;
+            rootPotB.setup(5, 70, ADC_MAX_VAL); // number of arp modes
+            //rootPotB.quantVal = 0; // this should probably be protected or in setup
+        }else {
+            stacked = settings.stacked;
+            glide = settings.glide;
+            rootPotB.setup(3, 70, ADC_MAX_VAL);
+            //rootPotB.quantVal = 0;
+        }
     }
 
     if (changed)  {
+
+        if (mode == ARP_MODE && arpCounter > 0) {
+          flashing = false;
+          arpPulseArmed = 0;
+        }else if (!arpPulseArmed || mode != ARP_MODE) {
+          flashing = true;
+          pulseOutTimer = 0;        
+          pinMode(RESET_CV, OUTPUT);
+          digitalWrite (RESET_LED, HIGH);
+          digitalWrite (RESET_CV, HIGH);
+        }
+
+
+
+        /*
         // Serial.println("Trig Out");
         pulseOutTimer = 0;
         flashing = true;
         pinMode(RESET_CV, OUTPUT);
         digitalWrite (RESET_LED, HIGH);
         digitalWrite (RESET_CV, HIGH);
-
+        */
         AudioNoInterrupts();
         updateFrequencies();
         updateAmps();
@@ -566,12 +579,21 @@ void loop(){
 
     updateWaveformLEDs();
 
+    if (pulseOutTimer > flashTime && flashing) {
+        arpPulseArmed = 1;
+        digitalWrite (RESET_LED, LOW);
+        digitalWrite (RESET_CV, LOW);
+        pinMode(RESET_CV, INPUT);
+        flashing = false;  
+    } 
+/*
     if (flashing && (pulseOutTimer > flashTime)) {
         digitalWrite (RESET_LED, LOW);
         digitalWrite (RESET_CV, LOW);
         pinMode(RESET_CV, INPUT);
         flashing = false;  
     } 
+*/
 }
 
 // Calculate hysteresis and step size of inputs
@@ -584,8 +606,9 @@ void updateAmpAndFreq() {
     int16_t* voicing = settings.voicings[voiceQuant];
 
     int noteNumber;
-    int voiceCount = 0;
     int halfSinecount = SINECOUNT>>1;
+    voiceCount = 0;
+
 
     if(stacked) {
         for(int i=0;i < halfSinecount;i++) {
@@ -629,6 +652,7 @@ void updateAmpAndFreq() {
                 // Serial.println(newFreq);
 
                 FREQ[i] = newFreq;
+                if (i == arpCounter && mode == ARP_MODE) FREQ[0] = FREQ[i];
                 voiceCount++;
             }
         }
@@ -746,34 +770,19 @@ void updateFrequencies() {
 }
 
 void updateAmps(){
-    float waveAmp = WAVEFORM_AMP[waveform];
-    mixer1.gain(0,AMP[0] * waveAmp);
-    mixer1.gain(1,AMP[1] * waveAmp);
-    mixer1.gain(2,AMP[2] * waveAmp);
-    mixer1.gain(3,AMP[3] * waveAmp);
-    mixer2.gain(0,AMP[4] * waveAmp);
-    mixer2.gain(1,AMP[5] * waveAmp);
-    mixer2.gain(2,AMP[6] * waveAmp);
-    mixer2.gain(3,AMP[7] * waveAmp);
+        float waveAmp = WAVEFORM_AMP[waveform];
+        mixer1.gain(0,AMP[0] * waveAmp);
+        
+        if (mode == ARP_MODE) waveAmp = 0;
+        mixer1.gain(1,AMP[1] * waveAmp);
+        mixer1.gain(2,AMP[2] * waveAmp);
+        mixer1.gain(3,AMP[3] * waveAmp);
+        mixer2.gain(0,AMP[4] * waveAmp);
+        mixer2.gain(1,AMP[5] * waveAmp);
+        mixer2.gain(2,AMP[6] * waveAmp);
+        mixer2.gain(3,AMP[7] * waveAmp);
 }
 
-/*
-void ledWriteBit(int n, bool overRide = false) {
-    //digitalWrite(LED3, HIGH && (n==0));
-    //digitalWrite(LED2, HIGH && (n==1));
-    //digitalWrite(LED1, HIGH && (n==2));
-    //digitalWrite(LED0, HIGH && (n==3));
-
-    if (ledOverRide && !overRide) {
-        // do not update
-    }else {
-        digitalWrite(LED3, n & 0b1000);
-        digitalWrite(LED2, n & 0b0100);
-        digitalWrite(LED1, n & 0b0010);
-        digitalWrite(LED0, n & 0b0001);
-    }
-}
-*/
 // WRITE A 4 DIGIT BINARY NUMBER TO LED0-LED3 
 void ledWrite(int n){
     if (n > 3) {
@@ -783,92 +792,15 @@ void ledWrite(int n){
     }
 }
 
-int rollingAvg(int val, int i) {
-  int avgOut;
-  
-  sum[i] -= avgPot[i][avgIndex[i]];
-  avgPot[i][avgIndex[i]] = val;
-  sum[i] += avgPot[i][avgIndex[i]];
-  avgIndex[i]++;
-  avgIndex[i] = avgIndex[i]%128;
-
-  avgOut = sum[i] >> 7; //divide by 128
-
-  return avgOut;
-}
-
-
-int indexInputs(int* rawValue, int avgNum, int stepSize, int hysteresis, int* bounceValue){
-  int bounceOld = *bounceValue;
-  int newIndex = 0;
-  int raw = *rawValue;
-  
-  //keep rolling average updated
-  //if (avgNum) 
-    raw = rollingAvg(raw, avgNum);
-
-  if (raw > bounceOld + hysteresis) { // going up
-    bounceOld += stepSize;
-  }else if (raw < bounceOld - hysteresis) { // going down
-    bounceOld -= stepSize;
-  }      
-
-  if (bounceOld != *bounceValue && raw > 0) {
-    *bounceValue = bounceOld;
-    newIndex = 1;
-    /*    
-    Serial.print("Orig raw : ");
-    Serial.print(raw);
-    Serial.print("  hysteresis : ");
-    Serial.print(hysteresis);
-    Serial.print("  step size : ");
-    Serial.print(stepSize);
-    Serial.print("  New pot value : ");
-    Serial.println(*rawValue);
-    */
-  }
-  // rawValue is now debounced and hysteresis notches applied
-  // rawValue is not yet quantized
-  *rawValue = bounceOld;
-  
-  return newIndex;
-}
-
 
 void checkInterface(){
 
-    // Read pots + CVs
-    //int chordPot = analogRead(CHORD_POT_PIN);
-    //int chordCV = analogRead(CHORD_CV_PIN);
-    //int rootPot = analogRead(ROOT_POT_PIN); 
-    //int rootCV = analogRead(ROOT_CV_PIN);
-    //int chordPot = 0;
-    //int chordCV = analogRead(CHORD_POT_PIN);
-    //int rootPot = 0;
-    //int rootCV = analogRead(ROOT_POT_PIN); 
-    
     int rootCVQuant = LOW_NOTE;
     
     chordChanged = false;
     chordCVChanged = false;
     rootChanged = false;
     rootCVChanged = false;
-    /*
-    chordRaw = constrain(chordPot, 0, ADC_MAX_VAL - 1);
-    chordCVRaw = constrain(chordCV, 0, ADC_MAX_VAL - 1);
-    rootPot = constrain(rootPot, 0, ADC_MAX_VAL - 1);
-    rootCV = constrain(rootCV, 0, ADC_MAX_VAL - 1);
-    */
-    // quadruple the rootCV to match setup
-    //rootCV <<= 2;
-
-    //chordChanged = indexInputs(&chordPot, 0, chordStep, chordHysteresis, &chordBounce);
-
-    //chordCVChanged = indexInputs(&chordCV, 1, chordCVStep, chordCVHysteresis, &chordCVBounce);
-    
-    //rootChanged = indexInputs(&rootPot, 2, rootStep, rootHysteresis, &rootBounce);
-
-    //rootCVChanged = indexInputs(&rootCV, 3, rootCVStep, rootCVHysteresis, &rootCVBounce);
 
     chordPot.update();
     chordPotB.update();
@@ -882,167 +814,147 @@ void checkInterface(){
     chordCVChanged = chordCV.changed;
     rootChanged = rootPot.changed;
     rootCVChanged = rootCV.changed;
-/*        
-    if (chordQuant != chordQuantOld){
-        changed = true; 
-        chordQuantOld = chordQuant;    
-    }
 
-    if (voiceQuant != voiceQuantOld){
-        changed = true; 
-        voiceQuantOld = voiceQuant;    
-    }
-*/
+
+    //if (arpMode) {
+    // NEEDS
+    // arpVal
+    // arpCounter
+    // arpDirection
     
-    // prevent a chord update if list is held at top value
-    if (chordChanged || chordPotB.changed || chordCVChanged) {
-      //chordQuantChk = constrain(chordPot + chordCV, 0, ADC_MAX_VAL - 1);
-      //      chordQuantChk = constrain(chordPot.value + chordCV.value, 0, ADC_MAX_VAL - 1);
-      //}    
-
-      //if (chordQuantChk != chordQuantOld) {
-      //chordQuantOld = chordQuantChk;
-
-      //chordRaw = chordPot * chordCoeff;
-      //chordCVRaw = chordCV * chordCVCoeff;
-      chordRaw = chordPot.quantVal;
-      chordCVRaw = (chordCV.quantVal + chordPotB.quantVal) % chordCount;
-
-
-
-      if(useVoicing) {
-        if(cvSelect == 0) {
-          chordQuant = chordRaw;
-          voiceQuant = chordCVRaw;
-          //Serial.println(" useVoicing and cvSelect == 0");
-        }else if(cvSelect == 1) {
-          chordQuant = chordCVRaw;
-          voiceQuant = chordRaw;
-          //Serial.println(" useVoicing and cvSelect == 1");
-        }
-      }else {
-        chordQuant = constrain(chordRaw + chordCVRaw, 0, chordCount);
-        //Serial.println(" useVoicing is False ");
+    if (mode == ARP_MODE) {
+        
+        arpVal = rootPotB.quantVal;
+        /*
+          chordRaw = chordPot;
+          chordCvRaw = chordCV;
+          chordCvRaw = constrain(chordCvRaw, 0, 1023);
+        */
+        //if (chordCvRaw > 1020 && !arpClock) { // new clock pulse received
+        if (chordCV.rawVal > 8100 && !arpClock) {
+            arpClock = 1;
+            arpClockBounce = 0;
+            changed = true;
+        
+            switch (arpVal) {
+            case 0:  // Arp up
+                arpCounter++;
+                if (arpCounter == voiceCount) arpCounter = 0;          
+                break;
+          
+            case 1:  // Arp down
+                arpCounter--;
+                if (arpCounter < 0) arpCounter = voiceCount - 1;
+                break;
+                
+            case 2:  // Ping pong single notes at top and bottom
+                arpCounter = arpCounter + arpDirection;
+                if (arpCounter == voiceCount) {
+                    arpDirection = -1;
+                    arpCounter = voiceCount - 2;
+                }else if (arpCounter < 0) {
+                    arpDirection = 1;
+                    arpCounter = 1;
+                }
+                break;
+                
+            case 3:  // Ping pong with double trigger and double notes
+                arpCounter = arpCounter + arpDirection;
+                if (arpCounter == voiceCount) {
+                    arpDirection = -1;
+                    arpCounter = voiceCount - 1;
+                }else if (arpCounter < 0) {
+                    arpDirection = 1;
+                    arpCounter = 0;
+                }
+                break;
+                
+            case 4:  // Random values
+                arpCounter = random(voiceCount - 1);
+                break;
+                
+          // also could do 2 up 1 down
+          // 3 up 1 down, 3 down 1 up etc
+        }          
+	
+      }else if (chordCV.rawVal < 100 && arpClock) {  // clock pulse ended 
+        if (arpClockBounce < arpClockThresh) arpClockBounce++;
+        else arpClock = 0;
       }
       
-      //chordQuant = chordPot * chordCoeff + chordCV * chordCVCoeff;
-      //chordQuant = constrain(chordQuant, 0, chordCount - 1);
-      chordPot.printStatus();
-      changed = true;
-      /*
-            Serial.print("chordQuant: ");
-            Serial.print(chordQuant);
-            Serial.print("  CV bounce: ");
-            Serial.print(chordBounce);
-            Serial.print("  ChordPot: ");
-            Serial.print(analogRead(CHORD_POT_PIN));
-            Serial.print("  ChordCV: ");
-            Serial.println(chordCV);
-      */
+    }
+
+    
+    
+    // prevent a chord update if list is held at top value
+    //if (chordChanged || chordPotB.changed || chordCVChanged || rootPotB.changed) {
+    if (chordPot.changed || chordPotB.changed || chordCV.changed || rootPotB.changed) {
+        cvSelect = rootPotB.quantVal;
+        chordRaw = chordPot.quantVal;
+        /*
+        if (mode == ARP_MODE) {
+            // ignore cv value
+            chordCVRaw = (chordPotB.quantVal) % chordCount;
+        }else if (mode == CHORD_MODE) {
+            chordCVRaw = (chordCV.quantVal + chordPotB.quantVal) % chordCount;
+        }
+        */      
+        if(mode != ARP_MODE) {
+            if(cvSelect == 0) {
+                chordQuant = constrain(chordPot.quantVal + chordCV.quantVal, 0, chordCount - 1);
+                voiceQuant = chordPotB.quantVal;
+                //Serial.println(" useVoicing and cvSelect == 0");
+            }else if(cvSelect == 1) {
+                chordQuant = chordPot.quantVal;
+                voiceQuant = (chordPotB.quantVal + chordCV.quantVal) % chordCount;
+                //Serial.println(" useVoicing and cvSelect == 1");
+            }
+        }else {
+            chordQuant = chordPot.quantVal;
+            voiceQuant = chordPotB.quantVal;
+        }
+
+            //chordQuant = constrain(chordRaw + chordCVRaw, 0, chordCount);
+        //Serial.println(" useVoicing is False ");
+        //}
+        
+        chordPot.printStatus();
+        changed = true;
+        /*
+          Serial.print("chordQuant: ");
+          Serial.print(chordQuant);
+          Serial.print("  CV bounce: ");
+          Serial.print(chordBounce);
+          Serial.print("  ChordPot: ");
+          Serial.print(analogRead(CHORD_POT_PIN));
+          Serial.print("  ChordCV: ");
+          Serial.println(chordCV);
+        */
     }
     
     if (rootChanged || rootCVChanged ) {
 
-      //rootCVQuant = (float)(rootCV - rootCVStep) * rootCVCoeff;
-      //rootQuant = (float)rootPot * rootCoeff + rootCVQuant + LOW_NOTE + 1;
+        rootQuant = rootPot.quantVal + rootCV.quantVal + LOW_NOTE;
+        Serial.println("ROOT");
+        rootPot.printStatus();      
+        
+        changed = true;
+        //rootCV.printStatus();
 
-      rootQuant = rootPot.quantVal + rootCV.quantVal + LOW_NOTE;
-      Serial.println("ROOT");
-      rootPot.printStatus();      
-      //rootCVQuantOld = rootCVQuant;
-      changed = true;
-      //rootCV.printStatus();
-
-      /*
-        Serial.print("rootCVBounce ");
-        Serial.print(rootCVBounce);
-        Serial.print("   rootCV ");
-        Serial.println(rootCV);
-        Serial.print(analogRead(ROOT_POT_PIN));
-
-        Serial.print("rootPot ");
-        Serial.print(rootPot);
-        Serial.print("  RootCVQuant ");
-        Serial.println(rootQuant);
-      */
-    }
-
-    // Apply hysteresis and filtering to prevent jittery quantization 
-    // Thanks to Matthias Puech for this code 
-    /*
-    if ((chordRaw > chordRawOld + CHANGE_TOLERANCE) || (chordRaw < chordRawOld - CHANGE_TOLERANCE)){
-        chordRawOld = chordRaw;    
-    }
-    else {
-        chordRawOld += (chordRaw - chordRawOld) >>5; 
-        chordRaw = chordRawOld;  
-    }
-
-    if ((chordCVRaw > chordCVRawOld + CHANGE_TOLERANCE) || (chordCVRaw < chordCVRawOld - CHANGE_TOLERANCE)){
-        chordCVRawOld = chordCVRaw;    
-    }
-    else {
-        chordCVRawOld += (chordCVRaw - chordCVRawOld) >>5; 
-        chordCVRaw = chordCVRawOld;  
+        /*
+          Serial.print("rootCVBounce ");
+          Serial.print(rootCVBounce);
+          Serial.print("   rootCV ");
+          Serial.println(rootCV);
+          Serial.print(analogRead(ROOT_POT_PIN));
+          
+          Serial.print("rootPot ");
+          Serial.print(rootPot);
+          Serial.print("  RootCVQuant ");
+          Serial.println(rootQuant);
+        */
     }
     
-    // Do Pot and CV separately
-    if ((rootPot > rootPotOld + CHANGE_TOLERANCE) || (rootPot < rootPotOld - CHANGE_TOLERANCE)){
-        rootPotOld = rootPot;
-        rootChanged = true;
-    }
-    else {
-        rootPotOld += (rootPot - rootPotOld) >>5;
-        rootPot = rootPotOld;
-    }
-    if ((rootCV > rootCVOld + CHANGE_TOLERANCE) || (rootCV < rootCVOld - CHANGE_TOLERANCE)){
-        rootCVOld = rootCV;
-        rootChanged = true;
-    }
-    else {
-        rootCVOld += (rootCV - rootCVOld) >>5;
-        rootCV = rootCVOld;
-    }
-    if(settings.useVoicing) {
-        if(settings.cvSelect == 0) {
-            chordQuant = map(chordRaw, 0, ADC_MAX_VAL, 0, chordCount);
-            voiceQuant = map(chordCVRaw, 0, ADC_MAX_VAL, 0, chordCount);
-            //Serial.println(" useVoicing and cvSelect == 0");
-        }else if(settings.cvSelect == 1) {
-            chordQuant = map(chordCVRaw, 0, ADC_MAX_VAL, 0, chordCount);
-            voiceQuant = map(chordRaw, 0, ADC_MAX_VAL, 0, chordCount);
-            //Serial.println(" useVoicing and cvSelect == 1");
-        }
-    }else {
-      chordQuant = constrain(chordRaw + chordCVRaw, 0,ADC_MAX_VAL - CHANGE_TOLERANCE);
-      chordQuant = map(chordQuant, 0, ADC_MAX_VAL, 0, chordCount);
-      //Serial.println(" useVoicing is False ");
-    }
-            
-        
-    if (chordQuant != chordQuantOld){
-        changed = true; 
-        chordQuantOld = chordQuant;    
-    }
-
-    if (voiceQuant != voiceQuantOld){
-        changed = true; 
-        voiceQuantOld = voiceQuant;    
-    }
-
-    // Map ADC reading to Note Numbers
-    int rootCVQuant = LOW_NOTE;
-    if(rootCV > rootClampLow) {
-      rootCVQuant = ((rootCV - rootClampLow) * rootMapCoeff) + LOW_NOTE + 1;
-    }
-    // Use Pot as transpose for CV
-    int rootPotQuant = map(rootPot,0,ADC_MAX_VAL,0,48);
-    rootQuant = rootCVQuant + rootPotQuant;
-    if (rootQuant != rootQuantOld){
-        changed = true; 
-        rootQuantOld = rootQuant;  
-    }
-    */
 #ifdef DEBUG_MODE
    if(rootChanged) {
         // printRootInfo(rootPot,rootCV);
@@ -1053,36 +965,22 @@ void checkInterface(){
     //    resetButton = resetSwitch.read();
 
    resetButton.update();
-   /*
-   if (resetButton.shortPress) {
-     // nothing to do
-     // use this test in changed();
-   }
-
-   if (resetButton.longPress) {
-
-   }
-
-    int buttonState = digitalRead(RESET_BUTTON);
-    if (buttonTimer > SHORT_PRESS_DURATION && buttonState == 0 && lockOut > 999 ){
-        shortPress = true;    
+/*
+    if (!flashing) {
+        digitalWrite (RESET_LED, LOW);
+        digitalWrite (RESET_CV, LOW);
+        pinMode(RESET_CV, INPUT);
     }
 
-    buttonTimer = buttonTimer * buttonState; 
-    if (buttonTimer > LONG_PRESS_DURATION){
-        longPress = true;
-        lockOut = 0;
-        buttonTimer = 0;
-    }
-   */
-    if (!flashing){
+
+   if (!flashing){
       resetCV.update();
       resetCVRose = resetCV.rose();
       if (resetCVRose) resetFlash = 0; 
 
         digitalWrite(RESET_LED, (resetFlash<20));
     }
-
+*/
 }
 
 void reBoot(int delayTime){

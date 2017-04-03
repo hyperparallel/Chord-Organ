@@ -50,10 +50,11 @@ public:
 
     explicit Input(int pin);
 
-    void setup(int numOfSteps, int percentHyst, int ADC_MAX_VAL);
+    void setup(int numOfSteps, int percentHyst, int ADC_MAX_VAL, int isCV = false);
     void update();
     //void updateCV();
     void setVOctCal(int vOctCal);
+    void setIsCV(int isCV);
     bool isMenuB = false;
     bool changed = false;
 
@@ -73,6 +74,7 @@ protected:
     int _updatePosition();
     int _rollingAvg(int rawValue);
     bool _isHighRes = false;
+    bool _isCV = false;
 
     int _value = 0;
     int _quantVal = 0;

@@ -188,8 +188,16 @@ void Input::setVOctCal(int vOctCal) {
     _vOctCal = vOctCal;
 }
 
-void Input::setup(int numOfSteps, int percentHyst, int ADC_MAX_VAL) {
+void Input::setIsCV(int isCV) {
+    _isCV = isCV;
+}
+
+void Input::setup(int numOfSteps, int percentHyst, int ADC_MAX_VAL, int isCV) {
+    _isCV = isCV;
+    
     if (numOfSteps > 10) _isHighRes = true;
+    else _isHighRes = false;
+    value = _value = _lockValue = quantVal = 0;
     
     if (_isHighRes) {
         _stepSize = (float)((ADC_MAX_VAL / (numOfSteps - 1)) * 4) - _vOctCal;
@@ -203,7 +211,7 @@ void Input::setup(int numOfSteps, int percentHyst, int ADC_MAX_VAL) {
 }
 
 int Input::_rollingAvg(int rawValue) {
-
+    int sumReturn = 0;
     // Remove value from sum
     // Update list with new value
     // Update sum
@@ -214,9 +222,15 @@ int Input::_rollingAvg(int rawValue) {
     // First 128 readings are incorrect, but happens on boot, so ok
     // Update counter and roll over if greater than list size
     _avgCounter++;
-    _avgCounter = _avgCounter%128;
+    if (_isCV) {
+        _avgCounter = _avgCounter%8;
+        sumReturn = _avgSum >> 3; 
+    }else {
+        _avgCounter = _avgCounter%128;
+        sumReturn = _avgSum >> 7; //divide by 128
+    }
     
-    return _avgSum >> 7; //divide by 128
+    return sumReturn;
 }
 
 int Input::_updatePosition() {
